@@ -1,0 +1,39 @@
+# ReactionX Trainer
+
+Eigene Web App zur Steuerung der ReactionX Reaktionslampen (Modell FY-03 und baugleiche) per Bluetooth,
+ausgerichtet auf kognitives Training im Handball.
+
+## Funktionen
+
+1. **Lampen verbinden** per Web Bluetooth, Akkustand anzeigen, Lampen testen und ausschalten
+2. **Trainingsprogramme**
+   1. Zufall: eine zufällige Lampe in einer zufälligen Farbe
+   2. Go / NoGo: Zielfarben treffen, Störfarben ignorieren (Hemmung und Entscheidung)
+   3. Reihenfolge: Lampen der Reihe nach
+   4. Duell: 2 bis 4 Spieler, jeder mit eigener Farbe, wer mehr trifft gewinnt
+3. **Reaktionszeiten** werden von der Lampe selbst gemessen (10 ms Auflösung)
+4. **Ergebnisse** pro Spieler speichern und als CSV für Excel exportieren
+5. **Simulationsmodus** mit virtuellen Lampen zum Ausprobieren ohne Hardware
+6. **Diagnose** zum Senden roher Befehle
+
+## Benutzung
+
+Web Bluetooth braucht HTTPS und einen passenden Browser:
+
+| Gerät | Browser |
+|---|---|
+| Android | Chrome |
+| Windows, macOS, ChromeOS, Linux | Chrome oder Edge |
+| iPhone, iPad | App „Bluefy“ (Safari kann kein Web Bluetooth) |
+
+Am einfachsten über GitHub Pages veröffentlichen: im Repository unter Settings, Pages den Branch auswählen.
+Danach ist die App unter `https://<nutzer>.github.io/<repo>/` erreichbar und lässt sich zum Startbildschirm hinzufügen.
+
+Lokal testen: `python3 -m http.server` im Ordner starten und `http://localhost:8000` öffnen
+(localhost gilt als sicher, Bluetooth funktioniert dort ebenfalls).
+
+**Wichtig:** Die offizielle ReactionX App vorher schließen, eine Lampe kann nur mit einem Gerät verbunden sein.
+
+## Protokoll
+
+Siehe [PROTOKOLL.md](PROTOKOLL.md).
