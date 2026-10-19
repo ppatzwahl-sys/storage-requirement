@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <title>ReactionX Trainer</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>ReactionX Trainer</h1>
+    <span id="status" class="status">Keine Lampe verbunden</span>
+  </header>
+
+  <nav>
+    <button data-tab="lamps" class="active">Lampen</button>
+    <button data-tab="training">Training</button>
+    <button data-tab="results">Ergebnisse</button>
+    <button data-tab="settings">Einstellungen</button>
+  </nav>
+
+  <main>
+    <!-- Lampen -->
+    <section id="tab-lamps" class="tab active">
+      <div id="ble-warning" class="card warn hidden">
+        Dieser Browser unterstützt kein Web Bluetooth. Nutze Chrome oder Edge auf Android, Windows, macOS
+        oder ChromeOS. Auf dem iPhone und iPad funktioniert die kostenlose App „Bluefy“.
+        Den Simulationsmodus kannst du überall testen.
+      </div>
+      <div class="row">
+        <button id="btn-connect" class="primary">Lampe verbinden</button>
+        <button id="btn-sim">Simulierte Lampe</button>
+      </div>
+      <p class="hint">Lampe einschalten, dann „Lampe verbinden“ tippen und im Auswahlfenster die Lampe
+        <code>$react-N</code> wählen. Für jede Lampe einmal wiederholen.</p>
+      <div class="row">
+        <button id="btn-battery">Akku prüfen</button>
+        <button id="btn-identify">Alle kurz aufleuchten</button>
+        <button id="btn-alloff">Alle aus</button>
+      </div>
+      <div id="lamp-grid" class="lamp-grid"></div>
+    </section>
+
+    <!-- Training -->
+    <section id="tab-training" class="tab">
+      <div class="card">
+        <label>Programm
+          <select id="mode">
+            <option value="random">Zufall: eine Lampe nach der anderen</option>
+            <option value="gonogo">Go / NoGo: Zielfarbe treffen, Störfarbe ignorieren</option>
+            <option value="sequence">Reihenfolge: Lampen der Reihe nach</option>
+            <option value="multi">Duell: jeder Spieler hat eine Farbe</option>
+          </select>
+        </label>
+        <p id="mode-desc" class="hint"></p>
+
+        <div id="opt-player" class="opt">
+          <label>Spieler
+            <select id="player"></select>
+          </label>
+        </div>
+
+        <div id="opt-players" class="opt hidden">
+          <span class="label">Spieler im Duell (2 bis 4)</span>
+          <div id="duel-players" class="chips"></div>
+        </div>
+
+        <div class="grid2">
+          <label>Ende nach
+            <select id="end-type">
+              <option value="hits">Anzahl Reize</option>
+              <option value="time">Zeit</option>
+            </select>
+          </label>
+          <label id="end-hits-wrap">Reize
+            <input id="end-hits" type="number" min="1" max="500" value="20">
+          </label>
+          <label id="end-time-wrap" class="hidden">Sekunden
+            <input id="end-time" type="number" min="5" max="600" value="30">
+          </label>
+          <label>Pause min (s)
+            <input id="delay-min" type="number" min="0" max="10" step="0.1" value="0.5">
+          </label>
+          <label>Pause max (s)
+            <input id="delay-max" type="number" min="0" max="10" step="0.1" value="1.5">
+          </label>
+          <label>Zeitlimit pro Reiz (s)
+            <input id="timeout" type="number" min="0" max="30" step="0.1" value="3">
+          </label>
+        </div>
+
+        <div id="opt-colors" class="opt">
+          <span class="label" id="colors-label">Farben</span>
+          <div id="colors" class="chips"></div>
+        </div>
+
+        <div id="opt-nogo" class="opt hidden">
+          <span class="label">Störfarben (nicht berühren)</span>
+          <div id="nogo-colors" class="chips"></div>
+          <label>Anteil Störreize (%)
+            <input id="nogo-ratio" type="number" min="0" max="90" value="30">
+          </label>
+        </div>
+
+        <div class="row">
+          <button id="btn-start" class="primary big">Start</button>
+          <button id="btn-stop" class="danger big" disabled>Stopp</button>
+        </div>
+      </div>
+
+      <div id="live" class="card live">
+        <div class="live-main">
+          <div><span class="kpi" id="live-hits">0</span><span class="kpi-label">Treffer</span></div>
+          <div><span class="kpi" id="live-last">·</span><span class="kpi-label">Letzte (s)</span></div>
+          <div><span class="kpi" id="live-avg">·</span><span class="kpi-label">Schnitt (s)</span></div>
+          <div><span class="kpi" id="live-err">0</span><span class="kpi-label">Fehler</span></div>
+        </div>
+        <div id="live-progress" class="progress"><div></div></div>
+        <div id="live-scores" class="scores"></div>
+        <p id="live-msg" class="hint"></p>
+      </div>
+    </section>
+
+    <!-- Ergebnisse -->
+    <section id="tab-results" class="tab">
+      <div class="row">
+        <label class="inline">Spieler
+          <select id="filter-player"><option value="">Alle</option></select>
+        </label>
+        <button id="btn-export">CSV Export</button>
+        <button id="btn-clear" class="danger">Alle löschen</button>
+      </div>
+      <div id="results"></div>
+    </section>
+
+    <!-- Einstellungen -->
+    <section id="tab-settings" class="tab">
+      <div class="card">
+        <h2>Spieler</h2>
+        <div class="row">
+          <input id="new-player" placeholder="Name">
+          <button id="btn-add-player">Hinzufügen</button>
+        </div>
+        <div id="player-list" class="chips"></div>
+      </div>
+
+      <div class="card">
+        <h2>Lampen</h2>
+        <div class="grid2">
+          <label>Sensor
+            <select id="set-sense">
+              <option value="0">Standard</option>
+              <option value="1">Nah</option>
+              <option value="2">Fern</option>
+              <option value="3">Vibration schwach</option>
+              <option value="4">Vibration stark</option>
+              <option value="5">Fern plus</option>
+            </select>
+          </label>
+          <label>Blinken
+            <select id="set-flash">
+              <option value="0">Aus</option>
+              <option value="1">Einmal</option>
+              <option value="2">1 Hz</option>
+              <option value="3">2 Hz</option>
+              <option value="4">5 Hz</option>
+              <option value="5">10 Hz</option>
+            </select>
+          </label>
+          <label class="check"><input id="set-beep-on" type="checkbox"> Ton beim Aufleuchten</label>
+          <label class="check"><input id="set-beep-hit" type="checkbox"> Ton bei Treffer</label>
+          <label class="check"><input id="set-compact" type="checkbox"> Kompaktes Protokoll (ältere Lampen)</label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Diagnose</h2>
+        <p class="hint">Rohe Bytes an eine Lampe senden, zum Beispiel <code>02 41 00 00 2C 01</code>
+          (rot, 3 s Zeitlimit). Details in PROTOKOLL.md.</p>
+        <div class="row">
+          <select id="diag-lamp"></select>
+          <input id="diag-bytes" placeholder="Hex Bytes" value="02 41 00 00 2C 01">
+          <button id="btn-diag-send">Senden</button>
+        </div>
+        <pre id="log" class="log"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
