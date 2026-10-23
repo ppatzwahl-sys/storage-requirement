@@ -82,7 +82,6 @@ const trainingCfg = store.get('training', {});
 
 const $ = (sel) => document.querySelector(sel);
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(' ');
-const rand = (min, max) => min + Math.random() * (max - min);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const fmt = (s) => (s == null || isNaN(s) ? '·' : s.toFixed(2));
 const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
@@ -499,8 +498,7 @@ class Session {
       if (this.active.size === 0) this.finish();
       return;
     }
-    const delay = rand(this.cfg.delayMin, Math.max(this.cfg.delayMin, this.cfg.delayMax));
-    this.later(() => this.fire(player), delay * 1000);
+    this.later(() => this.fire(player), this.cfg.delay * 1000);
   }
 
   pickLamp(player) {
@@ -570,8 +568,7 @@ class Session {
       this.flash(`Lauf ${this.runs}: ${fmt(t)} s`);
       this.renderLive();
       if (this.runs >= this.cfg.runs) return this.finish();
-      const delay = rand(this.cfg.delayMin, Math.max(this.cfg.delayMin, this.cfg.delayMax));
-      this.later(() => this.sprintReady(), Math.max(1, delay) * 1000);
+      this.later(() => this.sprintReady(), Math.max(1, this.cfg.delay) * 1000);
       return;
     }
     const rt = lampTime ?? (performance.now() - a.start) / 1000;
@@ -744,6 +741,10 @@ function renderTrainingForm() {
   if (endType !== 'hits') $('#end-hits-wrap').classList.add('hidden');
   if (endType !== 'time') $('#end-time-wrap').classList.add('hidden');
   $('#more-accel-wrap').classList.toggle('hidden', $('#more-tempo').value !== 'faster');
+  // Raster ohne sichtbare Felder ausblenden, damit keine leeren Abstände bleiben
+  document.querySelectorAll('#tab-training .grid2').forEach((g) => {
+    g.classList.toggle('hidden', [...g.children].every((el) => el.classList.contains('hidden')));
+  });
 }
 
 function renderColorPickers() {
@@ -802,8 +803,7 @@ function readTrainingForm() {
     endType: $('#end-type').value,
     endHits: Math.max(1, num('#end-hits')),
     endTime: Math.max(5, num('#end-time')),
-    delayMin: Math.max(0, num('#delay-min')),
-    delayMax: Math.max(0, num('#delay-max')),
+    delay: Math.max(0, num('#delay')),
     timeout: Math.max(0, num('#timeout')),
     colors: [...selected.colors],
     nogoColors: [...selected.nogo],
@@ -832,11 +832,13 @@ function readTrainingForm() {
 
 function restoreTrainingForm() {
   const c = trainingCfg;
+  // Früher gab es Pause min und max, daraus wird einmalig der Mittelwert
+  if (c.delay == null && c.delayMin != null) c.delay = Math.round(((c.delayMin + (c.delayMax ?? c.delayMin)) / 2) * 10) / 10;
   if (c.mode && MODES[c.mode]) $('#mode').value = c.mode;
   if (c.endType) $('#end-type').value = c.endType;
   if (c.moreTempo) $('#more-tempo').value = c.moreTempo;
   const fields = {
-    endHits: '#end-hits', endTime: '#end-time', delayMin: '#delay-min', delayMax: '#delay-max',
+    endHits: '#end-hits', endTime: '#end-time', delay: '#delay',
     timeout: '#timeout', nogoRatio: '#nogo-ratio', runs: '#runs', moreInterval: '#more-interval', moreAccel: '#more-accel',
   };
   for (const [k, id] of Object.entries(fields)) if (c[k] != null) $(id).value = c[k];
