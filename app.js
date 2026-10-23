@@ -51,6 +51,9 @@ const MODE_NAMES = { random: 'Zufall', gonogo: 'Go/NoGo', sequence: 'Reihenfolge
 const SPRINT_START_COLOR = 2; // Grün
 const SPRINT_FINISH_COLOR = 4; // Blau
 const MORE_MIN_INTERVAL = 0.3;
+// Zeitlimit 0 wird von den Lampen nicht als unbegrenzt behandelt, sie gehen trotzdem aus.
+// Deshalb für Lampen, die bis zum Abschlagen leuchten sollen, ein langes Limit senden
+const STAY_ON = 600;
 
 /* ---------- Speicher ---------- */
 
@@ -440,8 +443,8 @@ class Session {
       this.flash('Startlampe nicht verbunden.');
       return this.finish();
     }
-    this.active.set(lamp, { player: this.cfg.players[0], kind: 'sprint-start', start: performance.now(), timer: null });
-    lamp.light(SPRINT_START_COLOR, 0);
+    this.active.set(lamp, { player: this.cfg.players[0], kind: 'sprint-start', start: performance.now(), timer: null, stayOn: SPRINT_START_COLOR });
+    lamp.light(SPRINT_START_COLOR, STAY_ON);
     this.flash(`Lauf ${this.runs + 1} von ${this.cfg.runs}: bereit an Lampe ${lamp.label}`);
   }
 
@@ -458,8 +461,8 @@ class Session {
       this.flash('Ziellampe nicht verbunden.');
       return this.finish();
     }
-    this.active.set(finish, { player, kind: 'sprint-finish', start: performance.now(), timer: null });
-    finish.light(SPRINT_FINISH_COLOR, 0);
+    this.active.set(finish, { player, kind: 'sprint-finish', start: performance.now(), timer: null, stayOn: SPRINT_FINISH_COLOR });
+    finish.light(SPRINT_FINISH_COLOR, STAY_ON);
     this.flash(`Lauf ${this.runs + 1}: Zeit läuft, Ziel ist Lampe ${finish.label}`);
   }
 
@@ -472,8 +475,9 @@ class Session {
     if (!lamp) return this.gameOver();
     this.fired++;
     this.lastLamp[player] = lamp;
-    this.active.set(lamp, { player, kind: 'go', start: performance.now(), timer: null });
-    lamp.light(pick(this.cfg.colors), 0);
+    const color = pick(this.cfg.colors);
+    this.active.set(lamp, { player, kind: 'go', start: performance.now(), timer: null, stayOn: color });
+    lamp.light(color, STAY_ON);
     this.renderLive();
     if (this.lamps.every((l) => !l.connected || this.active.has(l))) return this.gameOver();
     if (this.cfg.moreTempo === 'faster') {
@@ -587,6 +591,11 @@ class Session {
   expire(lamp, fromApp) {
     const a = this.active.get(lamp);
     if (!a || !this.running) return;
+    if (a.stayOn) {
+      // Lampe ist von selbst ausgegangen, soll aber bis zum Abschlagen leuchten
+      lamp.light(a.stayOn, STAY_ON);
+      return;
+    }
     this.release(lamp, a);
     if (fromApp) lamp.off();
     const s = this.stats[a.player];
