@@ -4,16 +4,19 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f1115">
+  <!-- Bei jeder Veröffentlichung erhöhen, auch in den ?v= Angaben unten -->
+  <meta name="app-version" content="1.4">
   <title>ReactionX Trainer</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=1.4">
 </head>
 <body>
   <header>
-    <h1>ReactionX Trainer</h1>
+    <h1>ReactionX Trainer <span id="version" class="version"></span></h1>
     <span id="status" class="status">Keine Lampe verbunden</span>
   </header>
+  <button id="update-banner" class="update hidden">Neue Version <span id="update-version"></span> verfügbar. Tippen zum Aktualisieren.</button>
 
   <nav>
     <button data-tab="lamps" class="active">Lampen</button>
@@ -31,11 +34,14 @@
         Den Simulationsmodus kannst du überall testen.
       </div>
       <div class="row">
-        <button id="btn-connect" class="primary">Lampe verbinden</button>
+        <button id="btn-connect-all" class="primary">Alle verbinden</button>
+        <button id="btn-connect">Lampe verbinden</button>
         <button id="btn-sim">Simulierte Lampe</button>
       </div>
-      <p class="hint">Lampe einschalten, dann „Lampe verbinden“ tippen und im Auswahlfenster die Lampe
-        <code>$react-N</code> wählen. Für jede Lampe einmal wiederholen.</p>
+      <p class="hint">„Alle verbinden“ verbindet alle Lampen in Reichweite, die schon einmal gekoppelt waren.
+        Eine neue Lampe einmal über „Lampe verbinden“ koppeln: einschalten, antippen und im Auswahlfenster
+        <code>$react-N</code> wählen.</p>
+      <div id="auto-hint" class="card warn hidden"></div>
       <div class="row">
         <button id="btn-battery">Akku prüfen</button>
         <button id="btn-identify">Alle kurz aufleuchten</button>
@@ -216,6 +222,7 @@
           <label class="check"><input id="set-beep-on" type="checkbox"> Ton beim Aufleuchten</label>
           <label class="check"><input id="set-beep-hit" type="checkbox"> Ton bei Treffer</label>
           <label class="check"><input id="set-compact" type="checkbox"> Kompaktes Protokoll (ältere Lampen)</label>
+          <label class="check"><input id="set-auto-connect" type="checkbox"> Beim Start automatisch verbinden</label>
           <label class="check"><input id="set-keepalive-blink" type="checkbox"> Wachhalten: alle 2 Minuten kurz aufblinken</label>
         </div>
       </div>
@@ -234,6 +241,6 @@
     </section>
   </main>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=1.4"></script>
 </body>
 </html>

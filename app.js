@@ -35,6 +35,9 @@ const SENSE = [
 ];
 
 const KEEP_ALIVE_MS = 2 * 60 * 1000;
+const UPDATE_CHECK_MS = 10 * 60 * 1000;
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || '?';
+const LAMP_NAME = /^\$(react|xball)/i;
 const FLASH_PERIOD = [0, 0, 10, 5, 2, 1];
 
 const MODES = {
@@ -72,7 +75,7 @@ const store = {
 };
 
 const settings = Object.assign(
-  { sense: 0, flash: 0, beepOn: false, beepHit: false, compact: false, keepAliveBlink: false },
+  { sense: 0, flash: 0, beepOn: false, beepHit: false, compact: false, keepAliveBlink: false, autoConnect: true },
   store.get('settings', {}),
 );
 if (!SENSE[settings.sense]) settings.sense = 0;
@@ -225,6 +228,22 @@ class BleLamp extends Lamp {
     device.addEventListener('gattserverdisconnected', () => this.onDisconnected());
   }
 
+  // Für gemerkte Lampen: ohne Zeitlimit hängt gatt.connect() bei Lampen außer Reichweite sehr lange
+  async connectKnown() {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        this.device.gatt.disconnect();
+        reject(new Error('nicht erreichbar'));
+      }, 10000);
+    });
+    try {
+      await Promise.race([this.connect(), timeout]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   async connect() {
     const server = await this.device.gatt.connect();
     const service = await server.getPrimaryService(NUS_SERVICE);
@@ -342,6 +361,101 @@ function updateStatus() {
   const n = connectedLamps().length;
   $('#status').textContent = n === 0 ? 'Keine Lampe verbunden' : n === 1 ? '1 Lampe verbunden' : `${n} Lampen verbunden`;
   renderSprintSelects();
+}
+
+function waitForAdvertisement(device, ms) {
+  return new Promise((resolve, reject) => {
+    const ctrl = new AbortController();
+    const done = (ok) => {
+      clearTimeout(timer);
+      device.removeEventListener('advertisementreceived', onAdv);
+      ctrl.abort();
+      if (ok) resolve(); else reject(new Error('kein Signal'));
+    };
+    const onAdv = () => done(true);
+    const timer = setTimeout(() => done(false), ms);
+    device.addEventListener('advertisementreceived', onAdv);
+    device.watchAdvertisements({ signal: ctrl.signal }).catch(() => done(false));
+  });
+}
+
+// Chrome merkt sich erlaubte Geräte nur mit getDevices (je nach Version hinter einem Flag)
+const canRemember = () => !!(navigator.bluetooth && navigator.bluetooth.getDevices);
+
+const AUTO_HINTS = {
+  unsupported: `Automatisches Verbinden ist in deinem Chrome noch nicht aktiv. Einmalig einschalten:
+    <ol>
+      <li><code>chrome://flags</code> in die Adresszeile eingeben.</li>
+      <li>Nach „Bluetooth“ suchen und „Web Bluetooth New Permissions Backend“ auf Enabled stellen.</li>
+      <li>Nach „Experimental Web Platform features“ suchen und auf Enabled stellen.</li>
+      <li>Chrome neu starten und jede Lampe einmal über „Lampe verbinden“ koppeln.</li>
+    </ol>`,
+  empty: `Es ist noch keine Lampe gemerkt. Jede Lampe einmal über „Lampe verbinden“ koppeln, danach reicht
+    „Alle verbinden“. Bleibt die Liste leer, in <code>chrome://flags</code> „Web Bluetooth New Permissions
+    Backend“ auf Enabled stellen und Chrome neu starten.`,
+};
+
+function showAutoHint(kind) {
+  const el = $('#auto-hint');
+  el.innerHTML = kind ? AUTO_HINTS[kind] : '';
+  el.classList.toggle('hidden', !kind);
+}
+
+let connectingAll = false;
+
+async function connectAll({ silent = false } = {}) {
+  if (!canRemember()) {
+    if (!silent) showAutoHint('unsupported');
+    return;
+  }
+  if (connectingAll) return;
+  connectingAll = true;
+  const btn = $('#btn-connect-all');
+  btn.disabled = true;
+  btn.textContent = 'Verbinde ...';
+  try {
+    const devices = (await navigator.bluetooth.getDevices()).filter((d) => LAMP_NAME.test(d.name || ''));
+    if (devices.length === 0) {
+      if (!silent) showAutoHint('empty');
+      return;
+    }
+    showAutoHint(null);
+    // Erst gleichzeitig auf Lebenszeichen horchen, damit erreichbare Lampen zuerst drankommen
+    const seen = new Set();
+    if (devices[0].watchAdvertisements) {
+      btn.textContent = 'Suche Lampen ...';
+      await Promise.all(devices.map((d) => waitForAdvertisement(d, 6000).then(() => seen.add(d), () => {})));
+    }
+    const ordered = [...devices.filter((d) => seen.has(d)), ...devices.filter((d) => !seen.has(d))];
+    let ok = 0;
+    // Nacheinander verbinden, Android kommt mit parallelen Verbindungsaufbauten schlecht zurecht
+    for (const device of ordered) {
+      const existing = lamps.find((l) => l.device && l.device.id === device.id);
+      if (existing && existing.connected) {
+        ok++;
+        continue;
+      }
+      const lamp = existing || new BleLamp(device);
+      lamp.manualDisconnect = false;
+      btn.textContent = `Verbinde ${lamp.name} ...`;
+      try {
+        await lamp.connectKnown();
+        if (!existing) addLamp(lamp);
+        log(`${lamp.name} verbunden`);
+        lamp.light(4, 0.5);
+        ok++;
+      } catch (err) {
+        log(`${lamp.name} ${err.message}`);
+      }
+    }
+    log(`${ok} von ${devices.length} gemerkten Lampen verbunden`);
+  } catch (err) {
+    log('Alle verbinden fehlgeschlagen: ' + err.message);
+  } finally {
+    connectingAll = false;
+    btn.disabled = false;
+    btn.textContent = 'Alle verbinden';
+  }
 }
 
 async function connectLamp() {
@@ -1048,6 +1162,7 @@ function bindSettings() {
   bind('#set-beep-hit', 'beepHit', 'bool');
   bind('#set-compact', 'compact', 'bool');
   bind('#set-keepalive-blink', 'keepAliveBlink', 'bool');
+  bind('#set-auto-connect', 'autoConnect', 'bool');
 }
 
 function diagSend() {
@@ -1072,9 +1187,11 @@ function init() {
   if (!navigator.bluetooth) {
     $('#ble-warning').classList.remove('hidden');
     $('#btn-connect').disabled = true;
+    $('#btn-connect-all').disabled = true;
   }
 
   $('#btn-connect').onclick = connectLamp;
+  $('#btn-connect-all').onclick = () => connectAll();
   $('#btn-sim').onclick = () => addLamp(new SimLamp());
   $('#btn-battery').onclick = () => connectedLamps().forEach((l) => l.requestBattery());
   $('#btn-identify').onclick = () => connectedLamps().forEach((l) => l.light(7, 1));
@@ -1115,6 +1232,28 @@ function init() {
   renderLamps();
   renderResults();
   setInterval(keepAlive, KEEP_ALIVE_MS);
+
+  $('#version').textContent = 'v' + APP_VERSION;
+  $('#update-banner').onclick = () => location.reload();
+  checkForUpdate();
+  setInterval(checkForUpdate, UPDATE_CHECK_MS);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+
+  if (navigator.bluetooth && !canRemember()) showAutoHint('unsupported');
+  else if (settings.autoConnect) connectAll({ silent: true });
+}
+
+// Vergleicht die eigene Version mit der veröffentlichten index.html, am Cache vorbei
+async function checkForUpdate() {
+  try {
+    const res = await fetch('index.html', { cache: 'no-store' });
+    if (!res.ok) return;
+    const m = /name="app-version" content="([^"]+)"/.exec(await res.text());
+    if (m && m[1] !== APP_VERSION) {
+      $('#update-version').textContent = m[1];
+      $('#update-banner').classList.remove('hidden');
+    }
+  } catch { /* offline */ }
 }
 
 init();
