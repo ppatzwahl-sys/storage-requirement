@@ -32,13 +32,13 @@ Ziel ist die Interoperabilität mit den eigenen Lampen.
 | 3 (`0x08`) | Signalton beim Aufleuchten |
 | 4 (`0x10`) | Signalton bei Treffer |
 | 5 (`0x20`) | Blinken aktiv |
-| 6 bis 7 | Sensor: `0x40` nah, `0x80` fern, `0xC0` Vibration |
+| 6 bis 7 | Sensor: `0x80` nah, `0x40` fern, `0xC0` Vibration (nah und fern im Praxistest bestätigt) |
 
 ### Byte B2 (Erweiterung)
 
 | Wert | Bedeutung |
 |---|---|
-| `0x10` | Verstärkter Sensor (mit `0x40` in B1: starke Vibration, mit `0x80`: fern plus) |
+| `0x10` | Verstärkter Sensor (mit `0x40` in B1: fern plus) |
 | `0x02` | Sonderfarbe (Farbcode 8 der App) |
 
 ### Byte B3 (Blinkfrequenz)
@@ -56,5 +56,7 @@ Little Endian, Einheit 10 ms. `0` bedeutet kein Zeitlimit. Beispiel 2 s = 200 = 
 | `03 xx TL TH` | Treffer. Reaktionszeit = (TL + TH × 256) / 100 Sekunden, von der Lampe gemessen |
 | `09` | Zeitlimit abgelaufen, Lampe ist aus |
 | `21 V BL BH` | Akku: Spannung = (BL + BH × 256) × 10 mV. V > 128 bedeutet Hardware Version 4 |
+
+Die offizielle App hält die Lampen wach, indem sie alle 100 Sekunden `20` (Akkuabfrage) sendet.
 
 Akkubewertung der offiziellen App: über 3,90 V voll, über 3,65 V gut, über 3,40 V mittel, sonst schwach.

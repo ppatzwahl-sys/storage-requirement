@@ -179,15 +179,16 @@
 
       <div class="card">
         <h2>Lampen</h2>
+        <p class="hint">Die App hält verbundene Lampen alle 2 Minuten mit einer stillen Akkuabfrage wach.
+          Optional blinken sie dabei kurz weiß auf (nicht während eines Trainings).</p>
         <div class="grid2">
           <label>Sensor
             <select id="set-sense">
               <option value="0">Standard</option>
               <option value="1">Nah</option>
               <option value="2">Fern</option>
-              <option value="3">Vibration schwach</option>
-              <option value="4">Vibration stark</option>
-              <option value="5">Fern plus</option>
+              <option value="4">Fern plus</option>
+              <option value="3">Vibration</option>
             </select>
           </label>
           <label>Blinken
@@ -203,6 +204,7 @@
           <label class="check"><input id="set-beep-on" type="checkbox"> Ton beim Aufleuchten</label>
           <label class="check"><input id="set-beep-hit" type="checkbox"> Ton bei Treffer</label>
           <label class="check"><input id="set-compact" type="checkbox"> Kompaktes Protokoll (ältere Lampen)</label>
+          <label class="check"><input id="set-keepalive-blink" type="checkbox"> Wachhalten: alle 2 Minuten kurz aufblinken</label>
         </div>
       </div>
 

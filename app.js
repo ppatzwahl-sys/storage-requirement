@@ -24,15 +24,17 @@ const COLORS = [
   { name: 'Weiß', hex: '#ffffff' },
 ];
 
-// Index entspricht der Auswahl in den Einstellungen
+// Index entspricht der Auswahl in den Einstellungen.
+// Nah und Fern laut Praxistest: 0x80 = nah, 0x40 = fern
 const SENSE = [
-  { b1: 0x00, b2: 0x00 },
-  { b1: 0x40, b2: 0x00 },
-  { b1: 0x80, b2: 0x00 },
-  { b1: 0xc0, b2: 0x00 },
-  { b1: 0x40, b2: 0x10 },
-  { b1: 0x80, b2: 0x10 },
+  { b1: 0x00, b2: 0x00 }, // Standard
+  { b1: 0x80, b2: 0x00 }, // Nah
+  { b1: 0x40, b2: 0x00 }, // Fern
+  { b1: 0xc0, b2: 0x00 }, // Vibration
+  { b1: 0x40, b2: 0x10 }, // Fern plus
 ];
+
+const KEEP_ALIVE_MS = 2 * 60 * 1000;
 const FLASH_PERIOD = [0, 0, 10, 5, 2, 1];
 
 const MODES = {
@@ -65,9 +67,10 @@ const store = {
 };
 
 const settings = Object.assign(
-  { sense: 0, flash: 0, beepOn: false, beepHit: false, compact: false },
+  { sense: 0, flash: 0, beepOn: false, beepHit: false, compact: false, keepAliveBlink: false },
   store.get('settings', {}),
 );
+if (!SENSE[settings.sense]) settings.sense = 0;
 let players = store.get('players', ['Gast']);
 let results = store.get('results', []);
 const trainingCfg = store.get('training', {});
@@ -359,6 +362,17 @@ async function connectLamp() {
       log('Verbindung fehlgeschlagen: ' + err.message);
       alert('Verbindung fehlgeschlagen: ' + err.message);
     }
+  }
+}
+
+// Hält die Lampen wach, damit sie sich nicht selbst abschalten. Wie die offizielle App
+// per Akkuabfrage, auf Wunsch zusätzlich mit kurzem Aufblinken (nicht während eines Trainings)
+function keepAlive() {
+  const training = session && session.running;
+  for (const lamp of connectedLamps()) {
+    if (training && session.active.has(lamp)) continue;
+    lamp.requestBattery();
+    if (settings.keepAliveBlink && !training && !lamp.color) lamp.light(7, 0.2);
   }
 }
 
@@ -924,6 +938,7 @@ function bindSettings() {
   bind('#set-beep-on', 'beepOn', 'bool');
   bind('#set-beep-hit', 'beepHit', 'bool');
   bind('#set-compact', 'compact', 'bool');
+  bind('#set-keepalive-blink', 'keepAliveBlink', 'bool');
 }
 
 function diagSend() {
@@ -990,6 +1005,7 @@ function init() {
   renderTrainingForm();
   renderLamps();
   renderResults();
+  setInterval(keepAlive, KEEP_ALIVE_MS);
 }
 
 init();
