@@ -37,6 +37,20 @@ Lokal testen: `python3 -m http.server` im Ordner starten und `http://localhost:8
 
 **Wichtig:** Die offizielle ReactionX App vorher schließen, eine Lampe kann nur mit einem Gerät verbunden sein.
 
+## Automatisch verbinden (Chrome auf Android)
+
+Jede Lampe einmal über „Lampe verbinden“ koppeln. Danach verbindet „Alle verbinden“ (oder die Einstellung
+„Beim Start automatisch verbinden“) alle bekannten Lampen in Reichweite ohne Auswahlfenster.
+
+Dafür muss Chrome sich die Lampen merken dürfen. Ist das noch nicht aktiv, zeigt die App eine Anleitung:
+in `chrome://flags` „Web Bluetooth New Permissions Backend“ und „Experimental Web Platform features“ auf
+Enabled stellen und Chrome neu starten.
+
+## Neue Version veröffentlichen
+
+In `index.html` die Versionsnummer an drei Stellen erhöhen: `<meta name="app-version">`, `style.css?v=` und
+`app.js?v=`. Geöffnete Apps zeigen dann den Hinweis „Neue Version verfügbar“.
+
 ## Protokoll
 
 Siehe [PROTOKOLL.md](PROTOKOLL.md).
