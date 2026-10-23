@@ -85,7 +85,7 @@
           <label data-show="random gonogo sequence multi sprint base">Pause (s)
             <input id="delay" type="number" min="0" max="10" step="0.1" value="1">
           </label>
-          <label data-show="random gonogo sequence multi base">Zeitlimit pro Reiz (s), 0 = ohne
+          <label data-show="random gonogo sequence multi base">Zeitlimit (s), 0 = ohne
             <input id="timeout" type="number" min="0" max="30" step="0.1" value="3">
           </label>
         </div>
@@ -136,9 +136,14 @@
         <div id="opt-nogo" class="opt" data-show="gonogo">
           <span class="label">Störfarben (nicht berühren)</span>
           <div id="nogo-colors" class="chips"></div>
-          <label>Anteil Störreize (%)
-            <input id="nogo-ratio" type="number" min="0" max="90" value="30">
-          </label>
+          <div class="grid2">
+            <label>Anteil Störreize (%)
+              <input id="nogo-ratio" type="number" min="0" max="90" value="30">
+            </label>
+            <label>Störfarbe leuchtet (s)
+              <input id="nogo-time" type="number" min="0.3" max="30" step="0.1" value="2">
+            </label>
+          </div>
         </div>
 
         <div class="row">
@@ -148,6 +153,7 @@
       </div>
 
       <div id="live" class="card live">
+        <div id="live-clock" class="clock hidden">0:00</div>
         <div class="live-main">
           <div><span class="kpi" id="live-hits">0</span><span class="kpi-label">Treffer</span></div>
           <div><span class="kpi" id="live-last">·</span><span class="kpi-label">Letzte (s)</span></div>

@@ -390,6 +390,7 @@ class Session {
     this.cfg = cfg;
     this.lamps = connectedLamps();
     this.running = false;
+    this.startedAt = performance.now();
     this.fired = 0;
     this.active = new Map(); // Lampe → { player, kind, start, timer }
     this.lastLamp = {};
@@ -584,8 +585,8 @@ class Session {
     } else {
       color = pick(this.cfg.colors);
     }
-    // Störreize brauchen ein Zeitlimit, sonst bleiben sie für immer an und das Spiel steht
-    const timeout = this.cfg.timeout > 0 ? this.cfg.timeout : kind === 'nogo' ? 2 : 0;
+    // Störreize haben eine eigene Leuchtdauer, sonst blieben sie an und das Spiel stünde
+    const timeout = kind === 'nogo' ? this.cfg.nogoTime : this.cfg.timeout;
     this.fired++;
     this.lastLamp[player] = lamp;
     const entry = { player, kind, start: performance.now(), timer: null };
@@ -766,6 +767,18 @@ class Session {
     } else if (this.cfg.endType === 'time') ratio = (performance.now() - this.startedAt) / 1000 / this.cfg.endTime;
     else ratio = this.fired / this.cfg.endHits;
     $('#live-progress > div').style.width = `${Math.min(1, final ? 1 : ratio) * 100}%`;
+    if (this.hasClock()) {
+      const left = final ? 0 : Math.max(0, this.cfg.endTime - (performance.now() - this.startedAt) / 1000);
+      const secs = Math.ceil(left);
+      const clock = $('#live-clock');
+      clock.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      clock.classList.toggle('low', secs <= 5);
+    }
+  }
+
+  // Countdown nur bei Spielen, die nach Zeit enden
+  hasClock() {
+    return this.cfg.endType === 'time' && !['sprint', 'more'].includes(this.cfg.mode);
   }
 }
 
@@ -883,6 +896,7 @@ function readTrainingForm() {
     colors: [...selected.colors],
     nogoColors: [...selected.nogo],
     nogoRatio: num('#nogo-ratio'),
+    nogoTime: Math.max(0.3, num('#nogo-time')),
     player: $('#player').value,
     runs: Math.max(1, num('#runs')),
     sprintStart: $('#sprint-start').value,
@@ -915,7 +929,7 @@ function restoreTrainingForm() {
   if (c.moreTempo) $('#more-tempo').value = c.moreTempo;
   const fields = {
     endHits: '#end-hits', endTime: '#end-time', delay: '#delay',
-    timeout: '#timeout', nogoRatio: '#nogo-ratio', runs: '#runs', moreInterval: '#more-interval', moreAccel: '#more-accel',
+    timeout: '#timeout', nogoRatio: '#nogo-ratio', nogoTime: '#nogo-time', runs: '#runs', moreInterval: '#more-interval', moreAccel: '#more-accel',
   };
   for (const [k, id] of Object.entries(fields)) if (c[k] != null) $(id).value = c[k];
 }
@@ -943,10 +957,12 @@ async function startTraining() {
   $('#btn-stop').disabled = false;
   $('#live-scores').innerHTML = '';
   $('#live-msg').textContent = 'Los gehts!';
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
   session = new Session(cfg);
+  $('#live-clock').classList.toggle('hidden', !session.hasClock());
+  session.renderProgress();
   session.renderLive();
   session.start();
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
 }
 
 function onSessionEnd() {

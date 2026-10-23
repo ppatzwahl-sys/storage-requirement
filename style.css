@@ -121,6 +121,8 @@ code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
 .live-main { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; text-align: center; }
 .kpi { display: block; font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .kpi-label { font-size: 12px; color: var(--muted); }
+.clock { text-align: center; font-size: 56px; font-weight: 700; font-variant-numeric: tabular-nums; margin-bottom: 8px; }
+.clock.low { color: var(--danger); }
 .progress { height: 6px; background: var(--panel2); border-radius: 3px; margin: 12px 0; overflow: hidden; }
 .progress > div { height: 100%; width: 0; background: var(--accent); transition: width .2s; }
 .scores { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
