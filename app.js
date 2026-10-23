@@ -397,8 +397,8 @@ class Session {
     this.timers = new Set();
     this.stats = {};
     for (const p of cfg.players) {
-      // legs = Basis bis Ziel, backs = Rückweg vom Ziel zur Basis (nur Basismodus)
-      this.stats[p] = { hits: 0, misses: 0, errors: 0, rejections: 0, times: [], legs: [], backs: [] };
+      // backs = Rückweg vom Ziel zur Basis (nur Basismodus)
+      this.stats[p] = { hits: 0, misses: 0, errors: 0, rejections: 0, times: [], backs: [] };
     }
   }
 
@@ -500,13 +500,10 @@ class Session {
       this.flash('Keine Ziellampe verbunden.');
       return this.finish();
     }
-    const timeout = this.cfg.timeout;
     this.fired++;
     this.lastLamp[player] = lamp;
     const entry = { player, kind: 'go', start: performance.now(), timer: null, base: true };
-    if (timeout > 0) entry.timer = this.later(() => this.expire(lamp, true), timeout * 1000 + 800);
-    this.active.set(lamp, entry);
-    lamp.light(pick(this.cfg.colors), timeout);
+    this.lightStimulus(lamp, pick(this.cfg.colors), this.cfg.timeout, entry);
     this.renderLive();
   }
 
@@ -587,15 +584,21 @@ class Session {
     } else {
       color = pick(this.cfg.colors);
     }
-    // Störreize brauchen ein Zeitlimit, sonst bleiben sie für immer an
+    // Störreize brauchen ein Zeitlimit, sonst bleiben sie für immer an und das Spiel steht
     const timeout = this.cfg.timeout > 0 ? this.cfg.timeout : kind === 'nogo' ? 2 : 0;
     this.fired++;
     this.lastLamp[player] = lamp;
     const entry = { player, kind, start: performance.now(), timer: null };
-    if (timeout > 0) entry.timer = this.later(() => this.expire(lamp, true), timeout * 1000 + 800);
-    this.active.set(lamp, entry);
-    lamp.light(color, timeout);
+    this.lightStimulus(lamp, color, timeout, entry);
     this.renderLive();
+  }
+
+  // Zeitlimit 0 bedeutet ohne Limit: die Lampe leuchtet bis zum Abschlagen
+  lightStimulus(lamp, color, timeout, entry) {
+    if (timeout > 0) entry.timer = this.later(() => this.expire(lamp, true), timeout * 1000 + 800);
+    else entry.stayOn = color;
+    this.active.set(lamp, entry);
+    lamp.light(color, timeout > 0 ? timeout : STAY_ON);
   }
 
   onHit(lamp, lampTime) {
@@ -610,8 +613,11 @@ class Session {
     }
     if (a.kind === 'base') {
       // Die Lampe misst ab Aufleuchten, das ist der Rückweg vom letzten Ziel
-      if (this.fired > 0) s.backs.push(lampTime ?? (performance.now() - a.start) / 1000);
-      this.baseT0 = performance.now();
+      if (this.fired > 0) {
+        const back = lampTime ?? (performance.now() - a.start) / 1000;
+        s.backs.push(back);
+        this.flash(`Rückweg ${fmt(back)} s`);
+      }
       this.baseTarget(a.player);
       return;
     }
@@ -638,9 +644,6 @@ class Session {
       this.flash('Störfarbe berührt!');
     }
     if (a.base) {
-      const leg = (performance.now() - this.baseT0) / 1000;
-      s.legs.push(leg);
-      this.flash(`Reaktion ${fmt(rt)} s, Basis bis Ziel ${fmt(leg)} s`);
       this.renderLive();
       return this.baseNext();
     }
@@ -704,7 +707,6 @@ class Session {
         avg: avg(s.times),
         best: s.times.length ? Math.min(...s.times) : null,
         times: s.times.map((t) => Math.round(t * 1000) / 1000),
-        legAvg: avg(s.legs),
         backAvg: avg(s.backs),
       });
     }
@@ -731,8 +733,7 @@ class Session {
       return `Spielende: ${s.hits} Treffer in ${secs} s`;
     }
     if (this.cfg.mode === 'base') {
-      return `Fertig: ${s.hits} Treffer, Reaktion ${fmt(avg(s.times))} s, Basis bis Ziel ${fmt(avg(s.legs))} s, ` +
-        `Rückweg ${fmt(avg(s.backs))} s (jeweils Schnitt)`;
+      return `Fertig: ${s.hits} Treffer, Reaktion ${fmt(avg(s.times))} s, Rückweg ${fmt(avg(s.backs))} s (jeweils Schnitt)`;
     }
     let msg = `Fertig: ${s.hits} Treffer, Schnitt ${fmt(avg(s.times))} s`;
     if (this.cfg.mode === 'gonogo') msg += `, ${s.errors} Fehler, ${s.rejections} richtig ignoriert`;
@@ -977,13 +978,12 @@ function renderResults() {
       <td class="num">${fmt(r.best)}</td>
       <td class="num">${r.misses}</td>
       <td class="num">${r.mode === 'gonogo' ? r.errors : '·'}</td>
-      <td class="num">${fmt(r.legAvg)}</td>
       <td class="num">${fmt(r.backAvg)}</td>
     </tr>`).join('');
   $('#results').innerHTML = `
     <div class="card" style="overflow-x:auto">
       <table>
-        <thead><tr><th>Datum</th><th>Spieler</th><th>Programm</th><th>Dauer (s)</th><th>Treffer</th><th>Schnitt (s)</th><th>Beste (s)</th><th>Verpasst</th><th>Fehler</th><th>Basis bis Ziel (s)</th><th>Rückweg (s)</th></tr></thead>
+        <thead><tr><th>Datum</th><th>Spieler</th><th>Programm</th><th>Dauer (s)</th><th>Treffer</th><th>Schnitt (s)</th><th>Beste (s)</th><th>Verpasst</th><th>Fehler</th><th>Rückweg (s)</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -991,7 +991,7 @@ function renderResults() {
 
 function exportCsv() {
   const num = (v) => (v == null ? '' : String(Math.round(v * 1000) / 1000).replace('.', ','));
-  const head = ['Datum', 'Spieler', 'Programm', 'Dauer (s)', 'Treffer', 'Schnitt (s)', 'Beste (s)', 'Verpasst', 'Fehler', 'Richtig ignoriert', 'Basis bis Ziel Schnitt (s)', 'Rückweg Schnitt (s)', 'Einzelzeiten (s)'];
+  const head = ['Datum', 'Spieler', 'Programm', 'Dauer (s)', 'Treffer', 'Schnitt (s)', 'Beste (s)', 'Verpasst', 'Fehler', 'Richtig ignoriert', 'Rückweg Schnitt (s)', 'Einzelzeiten (s)'];
   const lines = results.map((r) => [
     new Date(r.date).toLocaleString('de-DE'),
     r.player,
@@ -1003,7 +1003,6 @@ function exportCsv() {
     r.misses,
     r.errors,
     r.rejections,
-    num(r.legAvg),
     num(r.backAvg),
     r.times.map(num).join(' '),
   ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';'));
