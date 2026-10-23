@@ -24,25 +24,33 @@ const COLORS = [
   { name: 'Weiß', hex: '#ffffff' },
 ];
 
-// Index entspricht der Auswahl in den Einstellungen
+// Index entspricht der Auswahl in den Einstellungen.
+// Nah und Fern laut Praxistest: 0x80 = nah, 0x40 = fern
 const SENSE = [
-  { b1: 0x00, b2: 0x00 },
-  { b1: 0x40, b2: 0x00 },
-  { b1: 0x80, b2: 0x00 },
-  { b1: 0xc0, b2: 0x00 },
-  { b1: 0x40, b2: 0x10 },
-  { b1: 0x80, b2: 0x10 },
+  { b1: 0x00, b2: 0x00 }, // Standard
+  { b1: 0x80, b2: 0x00 }, // Nah
+  { b1: 0x40, b2: 0x00 }, // Fern
+  { b1: 0xc0, b2: 0x00 }, // Vibration
+  { b1: 0x40, b2: 0x10 }, // Fern plus
 ];
+
+const KEEP_ALIVE_MS = 2 * 60 * 1000;
 const FLASH_PERIOD = [0, 0, 10, 5, 2, 1];
 
 const MODES = {
   random: 'Eine zufällige Lampe leuchtet in einer zufälligen Farbe aus deiner Auswahl. Treffen, so schnell es geht.',
   gonogo: 'Zielfarben treffen, Störfarben stehen lassen, bis sie von allein ausgehen. Trainiert Hemmung und Entscheidung.',
   sequence: 'Die Lampen leuchten der Reihe nach (1, 2, 3, ...). Gut für Laufwege und feste Muster.',
-  multi: 'Jeder Spieler bekommt eine eigene Farbe und gleichzeitig eine eigene Lampe. Wer mehr trifft, gewinnt.',
+  multi: 'Jede gewählte Farbe ist ein Team. Jedes Team hat gleichzeitig eine eigene Lampe in seiner Farbe. Wer mehr trifft, gewinnt.',
+  sprint: 'Zeitmessung: Startlampe abschlagen, zur Ziellampe laufen und dort abschlagen. Gemessen wird die Zeit dazwischen.',
+  more: 'Es gehen immer mehr Lampen an. Abschlagen, bevor alle gleichzeitig leuchten, dann ist das Spiel vorbei.',
 };
 
-const MODE_NAMES = { random: 'Zufall', gonogo: 'Go/NoGo', sequence: 'Reihenfolge', multi: 'Duell' };
+const MODE_NAMES = { random: 'Zufall', gonogo: 'Go/NoGo', sequence: 'Reihenfolge', multi: 'Duell', sprint: 'Sprint', more: 'Immer mehr' };
+
+const SPRINT_START_COLOR = 2; // Grün
+const SPRINT_FINISH_COLOR = 4; // Blau
+const MORE_MIN_INTERVAL = 0.3;
 
 /* ---------- Speicher ---------- */
 
@@ -59,9 +67,10 @@ const store = {
 };
 
 const settings = Object.assign(
-  { sense: 0, flash: 0, beepOn: false, beepHit: false, compact: false },
+  { sense: 0, flash: 0, beepOn: false, beepHit: false, compact: false, keepAliveBlink: false },
   store.get('settings', {}),
 );
+if (!SENSE[settings.sense]) settings.sense = 0;
 let players = store.get('players', ['Gast']);
 let results = store.get('results', []);
 const trainingCfg = store.get('training', {});
@@ -328,6 +337,7 @@ function renderLamps() {
 function updateStatus() {
   const n = connectedLamps().length;
   $('#status').textContent = n === 0 ? 'Keine Lampe verbunden' : n === 1 ? '1 Lampe verbunden' : `${n} Lampen verbunden`;
+  renderSprintSelects();
 }
 
 async function connectLamp() {
@@ -352,6 +362,17 @@ async function connectLamp() {
       log('Verbindung fehlgeschlagen: ' + err.message);
       alert('Verbindung fehlgeschlagen: ' + err.message);
     }
+  }
+}
+
+// Hält die Lampen wach, damit sie sich nicht selbst abschalten. Wie die offizielle App
+// per Akkuabfrage, auf Wunsch zusätzlich mit kurzem Aufblinken (nicht während eines Trainings)
+function keepAlive() {
+  const training = session && session.running;
+  for (const lamp of connectedLamps()) {
+    if (training && session.active.has(lamp)) continue;
+    lamp.requestBattery();
+    if (settings.keepAliveBlink && !training && !lamp.color) lamp.light(7, 0.2);
   }
 }
 
@@ -389,13 +410,83 @@ class Session {
       l.onHit = (lamp, t) => this.onHit(lamp, t);
       l.onTimeout = (lamp) => this.expire(lamp, false);
     }
-    if (this.cfg.endType === 'time') this.later(() => this.finish(), this.cfg.endTime * 1000);
     this.ticker = setInterval(() => this.renderProgress(), 200);
+    if (this.cfg.mode === 'sprint') {
+      this.runs = 0;
+      this.later(() => this.sprintReady(), 600);
+      return;
+    }
+    if (this.cfg.mode === 'more') {
+      this.interval = this.cfg.moreInterval;
+      this.later(() => this.moreTick(), 600);
+      return;
+    }
+    if (this.cfg.endType === 'time') this.later(() => this.finish(), this.cfg.endTime * 1000);
     this.cfg.players.forEach((p, i) => this.later(() => this.fire(p), 600 + i * 150));
   }
 
   done() {
+    if (this.cfg.mode === 'sprint' || this.cfg.mode === 'more') return false;
     return this.cfg.endType === 'hits' && this.fired >= this.cfg.endHits;
+  }
+
+  /* Sprint: Start abschlagen startet die Uhr, Ziel abschlagen stoppt sie */
+
+  sprintReady() {
+    if (!this.running) return;
+    if (this.runs >= this.cfg.runs) return this.finish();
+    const lamp = this.lamps.find((l) => l.name === this.cfg.sprintStart && l.connected);
+    if (!lamp) {
+      this.flash('Startlampe nicht verbunden.');
+      return this.finish();
+    }
+    this.active.set(lamp, { player: this.cfg.players[0], kind: 'sprint-start', start: performance.now(), timer: null });
+    lamp.light(SPRINT_START_COLOR, 0);
+    this.flash(`Lauf ${this.runs + 1} von ${this.cfg.runs}: bereit an Lampe ${lamp.label}`);
+  }
+
+  sprintGo(player) {
+    const startLamp = this.lamps.find((l) => l.name === this.cfg.sprintStart);
+    let finish;
+    if (this.cfg.sprintFinish === 'random') {
+      const others = this.lamps.filter((l) => l.connected && l !== startLamp);
+      finish = others.length ? pick(others) : startLamp;
+    } else {
+      finish = this.lamps.find((l) => l.name === this.cfg.sprintFinish && l.connected);
+    }
+    if (!finish) {
+      this.flash('Ziellampe nicht verbunden.');
+      return this.finish();
+    }
+    this.active.set(finish, { player, kind: 'sprint-finish', start: performance.now(), timer: null });
+    finish.light(SPRINT_FINISH_COLOR, 0);
+    this.flash(`Lauf ${this.runs + 1}: Zeit läuft, Ziel ist Lampe ${finish.label}`);
+  }
+
+  /* Immer mehr: in festem oder kürzer werdendem Abstand geht eine weitere Lampe an */
+
+  moreTick() {
+    if (!this.running) return;
+    const player = this.cfg.players[0];
+    const lamp = this.pickLamp(player);
+    if (!lamp) return this.gameOver();
+    this.fired++;
+    this.lastLamp[player] = lamp;
+    this.active.set(lamp, { player, kind: 'go', start: performance.now(), timer: null });
+    lamp.light(pick(this.cfg.colors), 0);
+    this.renderLive();
+    if (this.lamps.every((l) => !l.connected || this.active.has(l))) return this.gameOver();
+    if (this.cfg.moreTempo === 'faster') {
+      this.interval = Math.max(MORE_MIN_INTERVAL, this.interval * (1 - this.cfg.moreAccel / 100));
+    }
+    this.later(() => this.moreTick(), this.interval * 1000);
+  }
+
+  gameOver() {
+    const lamps = this.lamps.filter((l) => l.connected);
+    this.finish();
+    // Alle kurz rot als Signal für das Spielende
+    lamps.forEach((l) => l.light(1, 1.5));
   }
 
   next(player) {
@@ -459,8 +550,27 @@ class Session {
     const a = this.active.get(lamp);
     if (!a || !this.running) return;
     this.release(lamp, a);
-    const rt = lampTime ?? (performance.now() - a.start) / 1000;
     const s = this.stats[a.player];
+    if (a.kind === 'sprint-start') {
+      this.sprintT0 = performance.now();
+      this.sprintGo(a.player);
+      return;
+    }
+    if (a.kind === 'sprint-finish') {
+      // Beide Zeitpunkte kommen über Bluetooth an, die Funkverzögerung hebt sich weitgehend auf
+      const t = (performance.now() - this.sprintT0) / 1000;
+      s.hits++;
+      s.times.push(t);
+      this.lastRt = t;
+      this.runs++;
+      this.flash(`Lauf ${this.runs}: ${fmt(t)} s`);
+      this.renderLive();
+      if (this.runs >= this.cfg.runs) return this.finish();
+      const delay = rand(this.cfg.delayMin, Math.max(this.cfg.delayMin, this.cfg.delayMax));
+      this.later(() => this.sprintReady(), Math.max(1, delay) * 1000);
+      return;
+    }
+    const rt = lampTime ?? (performance.now() - a.start) / 1000;
     if (a.kind === 'go') {
       s.hits++;
       s.times.push(rt);
@@ -470,7 +580,7 @@ class Session {
       this.flash('Störfarbe berührt!');
     }
     this.renderLive();
-    this.next(a.player);
+    if (this.cfg.mode !== 'more') this.next(a.player);
   }
 
   // fromApp = Sicherheitstimer der App, falls die Lampe kein 09 meldet
@@ -539,6 +649,14 @@ class Session {
       return tie ? 'Unentschieden!' : `${top} gewinnt mit ${this.stats[top].hits} Treffern!`;
     }
     const s = this.stats[this.cfg.players[0]];
+    if (this.cfg.mode === 'sprint') {
+      if (!s.times.length) return 'Abgebrochen, kein Lauf gemessen.';
+      return `Fertig: ${s.hits} Läufe, Schnitt ${fmt(avg(s.times))} s, Bestzeit ${fmt(Math.min(...s.times))} s`;
+    }
+    if (this.cfg.mode === 'more') {
+      const secs = ((performance.now() - this.startedAt) / 1000).toFixed(1);
+      return `Spielende: ${s.hits} Treffer in ${secs} s`;
+    }
     let msg = `Fertig: ${s.hits} Treffer, Schnitt ${fmt(avg(s.times))} s`;
     if (this.cfg.mode === 'gonogo') msg += `, ${s.errors} Fehler, ${s.rejections} richtig ignoriert`;
     return msg;
@@ -563,7 +681,11 @@ class Session {
 
   renderProgress(final) {
     let ratio;
-    if (this.cfg.endType === 'time') ratio = (performance.now() - this.startedAt) / 1000 / this.cfg.endTime;
+    if (this.cfg.mode === 'sprint') ratio = this.runs / this.cfg.runs;
+    else if (this.cfg.mode === 'more') {
+      const n = this.lamps.filter((l) => l.connected).length;
+      ratio = n ? this.active.size / n : 0;
+    } else if (this.cfg.endType === 'time') ratio = (performance.now() - this.startedAt) / 1000 / this.cfg.endTime;
     else ratio = this.fired / this.cfg.endHits;
     $('#live-progress > div').style.width = `${Math.min(1, final ? 1 : ratio) * 100}%`;
   }
@@ -578,7 +700,6 @@ function escapeHtml(s) {
 const selected = {
   colors: new Set(trainingCfg.colors || [1, 2, 4]),
   nogo: new Set(trainingCfg.nogoColors || [1]),
-  duel: new Set((trainingCfg.duelPlayers || []).filter((p) => players.includes(p))),
 };
 
 function colorChips(container, set, onChange) {
@@ -601,17 +722,19 @@ function syncColorExclusivity() {
   for (const c of selected.nogo) selected.colors.delete(c);
 }
 
+const COLOR_LABELS = { gonogo: 'Zielfarben (treffen)', multi: 'Teams: jede Farbe ist ein Team (2 bis 4)' };
+
 function renderTrainingForm() {
   const mode = $('#mode').value;
   $('#mode-desc').textContent = MODES[mode];
-  $('#opt-nogo').classList.toggle('hidden', mode !== 'gonogo');
-  $('#opt-colors').classList.toggle('hidden', mode === 'multi');
-  $('#opt-player').classList.toggle('hidden', mode === 'multi');
-  $('#opt-players').classList.toggle('hidden', mode !== 'multi');
-  $('#colors-label').textContent = mode === 'gonogo' ? 'Zielfarben (treffen)' : 'Farben';
+  document.querySelectorAll('[data-show]').forEach((el) => {
+    el.classList.toggle('hidden', !el.dataset.show.split(' ').includes(mode));
+  });
+  $('#colors-label').textContent = COLOR_LABELS[mode] || 'Farben';
   const endType = $('#end-type').value;
-  $('#end-hits-wrap').classList.toggle('hidden', endType !== 'hits');
-  $('#end-time-wrap').classList.toggle('hidden', endType !== 'time');
+  if (endType !== 'hits') $('#end-hits-wrap').classList.add('hidden');
+  if (endType !== 'time') $('#end-time-wrap').classList.add('hidden');
+  $('#more-accel-wrap').classList.toggle('hidden', $('#more-tempo').value !== 'faster');
 }
 
 function renderColorPickers() {
@@ -625,22 +748,16 @@ function renderColorPickers() {
   });
 }
 
-const DUEL_COLORS = [1, 4, 2, 3];
-
-function renderDuelPlayers() {
-  const box = $('#duel-players');
-  box.innerHTML = '';
-  for (const p of players) {
-    const chip = document.createElement('span');
-    chip.className = 'chip' + (selected.duel.has(p) ? ' on' : '');
-    chip.textContent = p;
-    chip.onclick = () => {
-      if (selected.duel.has(p)) selected.duel.delete(p);
-      else if (selected.duel.size < 4) selected.duel.add(p);
-      renderDuelPlayers();
-    };
-    box.appendChild(chip);
-  }
+function renderSprintSelects() {
+  const named = lamps.filter((l) => l.connected);
+  const opts = named.map((l) => `<option value="${escapeHtml(l.name)}">Lampe ${l.label}</option>`).join('');
+  const start = $('#sprint-start').value || trainingCfg.sprintStart;
+  const finish = $('#sprint-finish').value || trainingCfg.sprintFinish;
+  $('#sprint-start').innerHTML = opts;
+  $('#sprint-finish').innerHTML = '<option value="random">Zufällig</option>' + opts;
+  if (named.some((l) => l.name === start)) $('#sprint-start').value = start;
+  if (finish === 'random' || named.some((l) => l.name === finish)) $('#sprint-finish').value = finish;
+  else if (named.length > 1) $('#sprint-finish').value = named[1].name;
 }
 
 function renderPlayerSelects() {
@@ -649,8 +766,10 @@ function renderPlayerSelects() {
   $('#player').innerHTML = opts;
   if (players.includes(cur)) $('#player').value = cur;
   const fcur = $('#filter-player').value;
-  $('#filter-player').innerHTML = '<option value="">Alle</option>' + opts;
-  $('#filter-player').value = players.includes(fcur) ? fcur : '';
+  const teams = [...new Set(results.map((r) => r.player))].filter((p) => !players.includes(p));
+  $('#filter-player').innerHTML = '<option value="">Alle</option>' + opts +
+    teams.map((p) => `<option>${escapeHtml(p)}</option>`).join('');
+  $('#filter-player').value = players.includes(fcur) || teams.includes(fcur) ? fcur : '';
   $('#player-list').innerHTML = '';
   for (const p of players) {
     const chip = document.createElement('span');
@@ -659,10 +778,8 @@ function renderPlayerSelects() {
     chip.querySelector('.x').onclick = () => {
       if (players.length <= 1) return;
       players = players.filter((x) => x !== p);
-      selected.duel.delete(p);
       store.set('players', players);
       renderPlayerSelects();
-      renderDuelPlayers();
     };
     $('#player-list').appendChild(chip);
   }
@@ -683,13 +800,21 @@ function readTrainingForm() {
     nogoColors: [...selected.nogo],
     nogoRatio: num('#nogo-ratio'),
     player: $('#player').value,
-    duelPlayers: [...selected.duel],
+    runs: Math.max(1, num('#runs')),
+    sprintStart: $('#sprint-start').value,
+    sprintFinish: $('#sprint-finish').value,
+    moreInterval: Math.max(MORE_MIN_INTERVAL, num('#more-interval')),
+    moreTempo: $('#more-tempo').value,
+    moreAccel: Math.min(50, Math.max(1, num('#more-accel'))),
   };
   store.set('training', cfg);
   if (mode === 'multi') {
-    cfg.players = cfg.duelPlayers;
     cfg.playerColors = {};
-    cfg.players.forEach((p, i) => { cfg.playerColors[p] = DUEL_COLORS[i]; });
+    cfg.players = cfg.colors.map((c) => {
+      const team = `Team ${COLORS[c].name}`;
+      cfg.playerColors[team] = c;
+      return team;
+    });
   } else {
     cfg.players = [cfg.player || 'Gast'];
   }
@@ -700,7 +825,11 @@ function restoreTrainingForm() {
   const c = trainingCfg;
   if (c.mode && MODES[c.mode]) $('#mode').value = c.mode;
   if (c.endType) $('#end-type').value = c.endType;
-  const fields = { endHits: '#end-hits', endTime: '#end-time', delayMin: '#delay-min', delayMax: '#delay-max', timeout: '#timeout', nogoRatio: '#nogo-ratio' };
+  if (c.moreTempo) $('#more-tempo').value = c.moreTempo;
+  const fields = {
+    endHits: '#end-hits', endTime: '#end-time', delayMin: '#delay-min', delayMax: '#delay-max',
+    timeout: '#timeout', nogoRatio: '#nogo-ratio', runs: '#runs', moreInterval: '#more-interval', moreAccel: '#more-accel',
+  };
   for (const [k, id] of Object.entries(fields)) if (c[k] != null) $(id).value = c[k];
 }
 
@@ -709,11 +838,14 @@ async function startTraining() {
   const n = connectedLamps().length;
   if (n === 0) return alert('Bitte zuerst Lampen verbinden oder simulierte Lampen hinzufügen.');
   if (cfg.mode === 'multi') {
-    if (cfg.players.length < 2) return alert('Bitte mindestens 2 Spieler für das Duell auswählen.');
-    if (n < cfg.players.length) return alert('Für das Duell braucht es mindestens so viele Lampen wie Spieler.');
+    if (cfg.players.length < 2 || cfg.players.length > 4) return alert('Bitte 2 bis 4 Farben als Teams auswählen.');
+    if (n < cfg.players.length) return alert('Für das Duell braucht es mindestens so viele Lampen wie Teams.');
+  } else if (cfg.mode === 'sprint') {
+    if (!cfg.sprintStart) return alert('Bitte eine Startlampe auswählen.');
   } else if (cfg.colors.length === 0) {
     return alert('Bitte mindestens eine Farbe auswählen.');
   }
+  if (cfg.mode === 'more' && n < 2) return alert('Für „Immer mehr“ braucht es mindestens 2 Lampen.');
   if (cfg.mode === 'gonogo' && cfg.nogoColors.length === 0) return alert('Bitte mindestens eine Störfarbe auswählen.');
 
   $('#btn-start').disabled = true;
@@ -731,6 +863,7 @@ function onSessionEnd() {
   $('#btn-stop').disabled = true;
   try { wakeLock?.release(); } catch { /* egal */ }
   wakeLock = null;
+  renderPlayerSelects();
   renderResults();
 }
 
@@ -748,6 +881,7 @@ function renderResults() {
       <td>${new Date(r.date).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</td>
       <td>${escapeHtml(r.player)}</td>
       <td>${MODE_NAMES[r.mode] || r.mode}</td>
+      <td class="num">${r.duration}</td>
       <td class="num">${r.hits}</td>
       <td class="num">${fmt(r.avg)}</td>
       <td class="num">${fmt(r.best)}</td>
@@ -757,7 +891,7 @@ function renderResults() {
   $('#results').innerHTML = `
     <div class="card" style="overflow-x:auto">
       <table>
-        <thead><tr><th>Datum</th><th>Spieler</th><th>Programm</th><th>Treffer</th><th>Schnitt (s)</th><th>Beste (s)</th><th>Verpasst</th><th>Fehler</th></tr></thead>
+        <thead><tr><th>Datum</th><th>Spieler</th><th>Programm</th><th>Dauer (s)</th><th>Treffer</th><th>Schnitt (s)</th><th>Beste (s)</th><th>Verpasst</th><th>Fehler</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -804,6 +938,7 @@ function bindSettings() {
   bind('#set-beep-on', 'beepOn', 'bool');
   bind('#set-beep-hit', 'beepHit', 'bool');
   bind('#set-compact', 'compact', 'bool');
+  bind('#set-keepalive-blink', 'keepAliveBlink', 'bool');
 }
 
 function diagSend() {
@@ -838,6 +973,7 @@ function init() {
 
   $('#mode').onchange = renderTrainingForm;
   $('#end-type').onchange = renderTrainingForm;
+  $('#more-tempo').onchange = renderTrainingForm;
   $('#btn-start').onclick = startTraining;
   $('#btn-stop').onclick = () => session && session.stop();
 
@@ -857,7 +993,6 @@ function init() {
     store.set('players', players);
     $('#new-player').value = '';
     renderPlayerSelects();
-    renderDuelPlayers();
   };
   $('#new-player').onkeydown = (e) => { if (e.key === 'Enter') $('#btn-add-player').click(); };
   $('#btn-diag-send').onclick = diagSend;
@@ -867,10 +1002,10 @@ function init() {
   syncColorExclusivity();
   renderColorPickers();
   renderPlayerSelects();
-  renderDuelPlayers();
   renderTrainingForm();
   renderLamps();
   renderResults();
+  setInterval(keepAlive, KEEP_ALIVE_MS);
 }
 
 init();

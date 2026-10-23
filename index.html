@@ -52,52 +52,82 @@
             <option value="random">Zufall: eine Lampe nach der anderen</option>
             <option value="gonogo">Go / NoGo: Zielfarbe treffen, Störfarbe ignorieren</option>
             <option value="sequence">Reihenfolge: Lampen der Reihe nach</option>
-            <option value="multi">Duell: jeder Spieler hat eine Farbe</option>
+            <option value="multi">Duell: jede Farbe ist ein Team</option>
+            <option value="sprint">Sprint: Zeitmessung von Start zu Ziel</option>
+            <option value="more">Immer mehr: wenn alle an sind, ist Schluss</option>
           </select>
         </label>
         <p id="mode-desc" class="hint"></p>
 
-        <div id="opt-player" class="opt">
+        <div id="opt-player" class="opt" data-show="random gonogo sequence sprint more">
           <label>Spieler
             <select id="player"></select>
           </label>
         </div>
 
-        <div id="opt-players" class="opt hidden">
-          <span class="label">Spieler im Duell (2 bis 4)</span>
-          <div id="duel-players" class="chips"></div>
-        </div>
-
         <div class="grid2">
-          <label>Ende nach
+          <label data-show="random gonogo sequence multi">Ende nach
             <select id="end-type">
               <option value="hits">Anzahl Reize</option>
               <option value="time">Zeit</option>
             </select>
           </label>
-          <label id="end-hits-wrap">Reize
+          <label id="end-hits-wrap" data-show="random gonogo sequence multi">Reize
             <input id="end-hits" type="number" min="1" max="500" value="20">
           </label>
-          <label id="end-time-wrap" class="hidden">Sekunden
+          <label id="end-time-wrap" data-show="random gonogo sequence multi">Sekunden
             <input id="end-time" type="number" min="5" max="600" value="30">
           </label>
-          <label>Pause min (s)
+          <label id="runs-wrap" data-show="sprint">Durchläufe
+            <input id="runs" type="number" min="1" max="50" value="5">
+          </label>
+          <label data-show="random gonogo sequence multi sprint">Pause min (s)
             <input id="delay-min" type="number" min="0" max="10" step="0.1" value="0.5">
           </label>
-          <label>Pause max (s)
+          <label data-show="random gonogo sequence multi sprint">Pause max (s)
             <input id="delay-max" type="number" min="0" max="10" step="0.1" value="1.5">
           </label>
-          <label>Zeitlimit pro Reiz (s)
+          <label data-show="random gonogo sequence multi">Zeitlimit pro Reiz (s)
             <input id="timeout" type="number" min="0" max="30" step="0.1" value="3">
           </label>
         </div>
 
-        <div id="opt-colors" class="opt">
+        <div id="opt-sprint" class="opt" data-show="sprint">
+          <div class="grid2">
+            <label>Startlampe
+              <select id="sprint-start"></select>
+            </label>
+            <label>Ziellampe
+              <select id="sprint-finish"></select>
+            </label>
+          </div>
+          <p class="hint">Startlampe leuchtet grün: abschlagen startet die Zeit. Dann leuchtet die Ziellampe blau:
+            abschlagen stoppt die Zeit. Bei „Zufällig“ ist das Ziel jedes Mal eine andere Lampe.</p>
+        </div>
+
+        <div id="opt-more" class="opt" data-show="more">
+          <div class="grid2">
+            <label>Abstand zu Beginn (s)
+              <input id="more-interval" type="number" min="0.3" max="20" step="0.1" value="2">
+            </label>
+            <label>Tempo
+              <select id="more-tempo">
+                <option value="fixed">Fest</option>
+                <option value="faster">Wird immer schneller</option>
+              </select>
+            </label>
+            <label id="more-accel-wrap">Schneller pro Lampe (%)
+              <input id="more-accel" type="number" min="1" max="50" value="5">
+            </label>
+          </div>
+        </div>
+
+        <div id="opt-colors" class="opt" data-show="random gonogo sequence multi more">
           <span class="label" id="colors-label">Farben</span>
           <div id="colors" class="chips"></div>
         </div>
 
-        <div id="opt-nogo" class="opt hidden">
+        <div id="opt-nogo" class="opt" data-show="gonogo">
           <span class="label">Störfarben (nicht berühren)</span>
           <div id="nogo-colors" class="chips"></div>
           <label>Anteil Störreize (%)
@@ -149,15 +179,16 @@
 
       <div class="card">
         <h2>Lampen</h2>
+        <p class="hint">Die App hält verbundene Lampen alle 2 Minuten mit einer stillen Akkuabfrage wach.
+          Optional blinken sie dabei kurz weiß auf (nicht während eines Trainings).</p>
         <div class="grid2">
           <label>Sensor
             <select id="set-sense">
               <option value="0">Standard</option>
               <option value="1">Nah</option>
               <option value="2">Fern</option>
-              <option value="3">Vibration schwach</option>
-              <option value="4">Vibration stark</option>
-              <option value="5">Fern plus</option>
+              <option value="4">Fern plus</option>
+              <option value="3">Vibration</option>
             </select>
           </label>
           <label>Blinken
@@ -173,6 +204,7 @@
           <label class="check"><input id="set-beep-on" type="checkbox"> Ton beim Aufleuchten</label>
           <label class="check"><input id="set-beep-hit" type="checkbox"> Ton bei Treffer</label>
           <label class="check"><input id="set-compact" type="checkbox"> Kompaktes Protokoll (ältere Lampen)</label>
+          <label class="check"><input id="set-keepalive-blink" type="checkbox"> Wachhalten: alle 2 Minuten kurz aufblinken</label>
         </div>
       </div>
 
