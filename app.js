@@ -43,14 +43,16 @@ const MODES = {
   sequence: 'Die Lampen leuchten der Reihe nach (1, 2, 3, ...). Gut für Laufwege und feste Muster.',
   multi: 'Jede gewählte Farbe ist ein Team. Jedes Team hat gleichzeitig eine eigene Lampe in seiner Farbe. Wer mehr trifft, gewinnt.',
   sprint: 'Zeitmessung: Startlampe abschlagen, zur Ziellampe laufen und dort abschlagen. Gemessen wird die Zeit dazwischen.',
+  base: 'Die Basis leuchtet. Abschlagen, dann leuchtet eine der anderen Lampen. Abschlagen, zurück zur Basis und so weiter.',
   more: 'Es gehen immer mehr Lampen an. Abschlagen, bevor alle gleichzeitig leuchten, dann ist das Spiel vorbei.',
 };
 
-const MODE_NAMES = { random: 'Zufall', gonogo: 'Go/NoGo', sequence: 'Reihenfolge', multi: 'Duell', sprint: 'Sprint', more: 'Immer mehr' };
+const MODE_NAMES = { random: 'Zufall', gonogo: 'Go/NoGo', sequence: 'Reihenfolge', multi: 'Duell', sprint: 'Sprint', more: 'Immer mehr', base: 'Basis' };
 
 const SPRINT_START_COLOR = 2; // Grün
 const SPRINT_FINISH_COLOR = 4; // Blau
 const MORE_MIN_INTERVAL = 0.3;
+const BASE_COLOR = 7; // Weiß
 // Zeitlimit 0 wird von den Lampen nicht als unbegrenzt behandelt, sie gehen trotzdem aus.
 // Deshalb für Lampen, die bis zum Abschlagen leuchten sollen, ein langes Limit senden
 const STAY_ON = 600;
@@ -82,7 +84,6 @@ const trainingCfg = store.get('training', {});
 
 const $ = (sel) => document.querySelector(sel);
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join(' ');
-const rand = (min, max) => min + Math.random() * (max - min);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const fmt = (s) => (s == null || isNaN(s) ? '·' : s.toFixed(2));
 const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
@@ -389,6 +390,7 @@ class Session {
     this.cfg = cfg;
     this.lamps = connectedLamps();
     this.running = false;
+    this.startedAt = performance.now();
     this.fired = 0;
     this.active = new Map(); // Lampe → { player, kind, start, timer }
     this.lastLamp = {};
@@ -396,7 +398,8 @@ class Session {
     this.timers = new Set();
     this.stats = {};
     for (const p of cfg.players) {
-      this.stats[p] = { hits: 0, misses: 0, errors: 0, rejections: 0, times: [] };
+      // backs = Rückweg vom Ziel zur Basis (nur Basismodus)
+      this.stats[p] = { hits: 0, misses: 0, errors: 0, rejections: 0, times: [], backs: [] };
     }
   }
 
@@ -417,6 +420,11 @@ class Session {
     if (this.cfg.mode === 'sprint') {
       this.runs = 0;
       this.later(() => this.sprintReady(), 600);
+      return;
+    }
+    if (this.cfg.mode === 'base') {
+      if (this.cfg.endType === 'time') this.later(() => this.finish(), this.cfg.endTime * 1000);
+      this.later(() => this.baseReady(), 600);
       return;
     }
     if (this.cfg.mode === 'more') {
@@ -466,6 +474,45 @@ class Session {
     this.flash(`Lauf ${this.runs + 1}: Zeit läuft, Ziel ist Lampe ${finish.label}`);
   }
 
+  /* Basis: Basis abschlagen, Ziel abschlagen, nach der Pause wieder Basis */
+
+  baseLamp() {
+    return this.lamps.find((l) => l.name === this.cfg.baseLamp && l.connected);
+  }
+
+  baseReady() {
+    if (!this.running) return;
+    if (this.done()) return this.finish();
+    const lamp = this.baseLamp();
+    if (!lamp) {
+      this.flash('Basislampe nicht verbunden.');
+      return this.finish();
+    }
+    this.active.set(lamp, { player: this.cfg.players[0], kind: 'base', start: performance.now(), timer: null, stayOn: BASE_COLOR });
+    lamp.light(BASE_COLOR, STAY_ON);
+  }
+
+  baseTarget(player) {
+    const base = this.baseLamp();
+    const others = this.lamps.filter((l) => l.connected && l !== base);
+    const fresh = others.filter((l) => l !== this.lastLamp[player]);
+    const lamp = pick(fresh.length ? fresh : others);
+    if (!lamp) {
+      this.flash('Keine Ziellampe verbunden.');
+      return this.finish();
+    }
+    this.fired++;
+    this.lastLamp[player] = lamp;
+    const entry = { player, kind: 'go', start: performance.now(), timer: null, base: true };
+    this.lightStimulus(lamp, pick(this.cfg.colors), this.cfg.timeout, entry);
+    this.renderLive();
+  }
+
+  baseNext() {
+    if (this.done()) return this.finish();
+    this.later(() => this.baseReady(), this.cfg.delay * 1000);
+  }
+
   /* Immer mehr: in festem oder kürzer werdendem Abstand geht eine weitere Lampe an */
 
   moreTick() {
@@ -499,8 +546,7 @@ class Session {
       if (this.active.size === 0) this.finish();
       return;
     }
-    const delay = rand(this.cfg.delayMin, Math.max(this.cfg.delayMin, this.cfg.delayMax));
-    this.later(() => this.fire(player), delay * 1000);
+    this.later(() => this.fire(player), this.cfg.delay * 1000);
   }
 
   pickLamp(player) {
@@ -539,15 +585,21 @@ class Session {
     } else {
       color = pick(this.cfg.colors);
     }
-    // Störreize brauchen ein Zeitlimit, sonst bleiben sie für immer an
-    const timeout = this.cfg.timeout > 0 ? this.cfg.timeout : kind === 'nogo' ? 2 : 0;
+    // Störreize haben eine eigene Leuchtdauer, sonst blieben sie an und das Spiel stünde
+    const timeout = kind === 'nogo' ? this.cfg.nogoTime : this.cfg.timeout;
     this.fired++;
     this.lastLamp[player] = lamp;
     const entry = { player, kind, start: performance.now(), timer: null };
-    if (timeout > 0) entry.timer = this.later(() => this.expire(lamp, true), timeout * 1000 + 800);
-    this.active.set(lamp, entry);
-    lamp.light(color, timeout);
+    this.lightStimulus(lamp, color, timeout, entry);
     this.renderLive();
+  }
+
+  // Zeitlimit 0 bedeutet ohne Limit: die Lampe leuchtet bis zum Abschlagen
+  lightStimulus(lamp, color, timeout, entry) {
+    if (timeout > 0) entry.timer = this.later(() => this.expire(lamp, true), timeout * 1000 + 800);
+    else entry.stayOn = color;
+    this.active.set(lamp, entry);
+    lamp.light(color, timeout > 0 ? timeout : STAY_ON);
   }
 
   onHit(lamp, lampTime) {
@@ -560,6 +612,16 @@ class Session {
       this.sprintGo(a.player);
       return;
     }
+    if (a.kind === 'base') {
+      // Die Lampe misst ab Aufleuchten, das ist der Rückweg vom letzten Ziel
+      if (this.fired > 0) {
+        const back = lampTime ?? (performance.now() - a.start) / 1000;
+        s.backs.push(back);
+        this.flash(`Rückweg ${fmt(back)} s`);
+      }
+      this.baseTarget(a.player);
+      return;
+    }
     if (a.kind === 'sprint-finish') {
       // Beide Zeitpunkte kommen über Bluetooth an, die Funkverzögerung hebt sich weitgehend auf
       const t = (performance.now() - this.sprintT0) / 1000;
@@ -570,8 +632,7 @@ class Session {
       this.flash(`Lauf ${this.runs}: ${fmt(t)} s`);
       this.renderLive();
       if (this.runs >= this.cfg.runs) return this.finish();
-      const delay = rand(this.cfg.delayMin, Math.max(this.cfg.delayMin, this.cfg.delayMax));
-      this.later(() => this.sprintReady(), Math.max(1, delay) * 1000);
+      this.later(() => this.sprintReady(), Math.max(1, this.cfg.delay) * 1000);
       return;
     }
     const rt = lampTime ?? (performance.now() - a.start) / 1000;
@@ -582,6 +643,10 @@ class Session {
     } else {
       s.errors++;
       this.flash('Störfarbe berührt!');
+    }
+    if (a.base) {
+      this.renderLive();
+      return this.baseNext();
     }
     this.renderLive();
     if (this.cfg.mode !== 'more') this.next(a.player);
@@ -602,6 +667,7 @@ class Session {
     if (a.kind === 'go') s.misses++;
     else s.rejections++;
     this.renderLive();
+    if (a.base) return this.baseNext();
     this.next(a.player);
   }
 
@@ -642,6 +708,7 @@ class Session {
         avg: avg(s.times),
         best: s.times.length ? Math.min(...s.times) : null,
         times: s.times.map((t) => Math.round(t * 1000) / 1000),
+        backAvg: avg(s.backs),
       });
     }
     store.set('results', results);
@@ -665,6 +732,9 @@ class Session {
     if (this.cfg.mode === 'more') {
       const secs = ((performance.now() - this.startedAt) / 1000).toFixed(1);
       return `Spielende: ${s.hits} Treffer in ${secs} s`;
+    }
+    if (this.cfg.mode === 'base') {
+      return `Fertig: ${s.hits} Treffer, Reaktion ${fmt(avg(s.times))} s, Rückweg ${fmt(avg(s.backs))} s (jeweils Schnitt)`;
     }
     let msg = `Fertig: ${s.hits} Treffer, Schnitt ${fmt(avg(s.times))} s`;
     if (this.cfg.mode === 'gonogo') msg += `, ${s.errors} Fehler, ${s.rejections} richtig ignoriert`;
@@ -697,6 +767,18 @@ class Session {
     } else if (this.cfg.endType === 'time') ratio = (performance.now() - this.startedAt) / 1000 / this.cfg.endTime;
     else ratio = this.fired / this.cfg.endHits;
     $('#live-progress > div').style.width = `${Math.min(1, final ? 1 : ratio) * 100}%`;
+    if (this.hasClock()) {
+      const left = final ? 0 : Math.max(0, this.cfg.endTime - (performance.now() - this.startedAt) / 1000);
+      const secs = Math.ceil(left);
+      const clock = $('#live-clock');
+      clock.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      clock.classList.toggle('low', secs <= 5);
+    }
+  }
+
+  // Countdown nur bei Spielen, die nach Zeit enden
+  hasClock() {
+    return this.cfg.endType === 'time' && !['sprint', 'more'].includes(this.cfg.mode);
   }
 }
 
@@ -744,6 +826,10 @@ function renderTrainingForm() {
   if (endType !== 'hits') $('#end-hits-wrap').classList.add('hidden');
   if (endType !== 'time') $('#end-time-wrap').classList.add('hidden');
   $('#more-accel-wrap').classList.toggle('hidden', $('#more-tempo').value !== 'faster');
+  // Raster ohne sichtbare Felder ausblenden, damit keine leeren Abstände bleiben
+  document.querySelectorAll('#tab-training .grid2').forEach((g) => {
+    g.classList.toggle('hidden', [...g.children].every((el) => el.classList.contains('hidden')));
+  });
 }
 
 function renderColorPickers() {
@@ -762,6 +848,9 @@ function renderSprintSelects() {
   const opts = named.map((l) => `<option value="${escapeHtml(l.name)}">Lampe ${l.label}</option>`).join('');
   const start = $('#sprint-start').value || trainingCfg.sprintStart;
   const finish = $('#sprint-finish').value || trainingCfg.sprintFinish;
+  const base = $('#base-lamp').value || trainingCfg.baseLamp;
+  $('#base-lamp').innerHTML = opts;
+  if (named.some((l) => l.name === base)) $('#base-lamp').value = base;
   $('#sprint-start').innerHTML = opts;
   $('#sprint-finish').innerHTML = '<option value="random">Zufällig</option>' + opts;
   if (named.some((l) => l.name === start)) $('#sprint-start').value = start;
@@ -802,16 +891,17 @@ function readTrainingForm() {
     endType: $('#end-type').value,
     endHits: Math.max(1, num('#end-hits')),
     endTime: Math.max(5, num('#end-time')),
-    delayMin: Math.max(0, num('#delay-min')),
-    delayMax: Math.max(0, num('#delay-max')),
+    delay: Math.max(0, num('#delay')),
     timeout: Math.max(0, num('#timeout')),
     colors: [...selected.colors],
     nogoColors: [...selected.nogo],
     nogoRatio: num('#nogo-ratio'),
+    nogoTime: Math.max(0.3, num('#nogo-time')),
     player: $('#player').value,
     runs: Math.max(1, num('#runs')),
     sprintStart: $('#sprint-start').value,
     sprintFinish: $('#sprint-finish').value,
+    baseLamp: $('#base-lamp').value,
     moreInterval: Math.max(MORE_MIN_INTERVAL, num('#more-interval')),
     moreTempo: $('#more-tempo').value,
     moreAccel: Math.min(50, Math.max(1, num('#more-accel'))),
@@ -832,12 +922,14 @@ function readTrainingForm() {
 
 function restoreTrainingForm() {
   const c = trainingCfg;
+  // Früher gab es Pause min und max, daraus wird einmalig der Mittelwert
+  if (c.delay == null && c.delayMin != null) c.delay = Math.round(((c.delayMin + (c.delayMax ?? c.delayMin)) / 2) * 10) / 10;
   if (c.mode && MODES[c.mode]) $('#mode').value = c.mode;
   if (c.endType) $('#end-type').value = c.endType;
   if (c.moreTempo) $('#more-tempo').value = c.moreTempo;
   const fields = {
-    endHits: '#end-hits', endTime: '#end-time', delayMin: '#delay-min', delayMax: '#delay-max',
-    timeout: '#timeout', nogoRatio: '#nogo-ratio', runs: '#runs', moreInterval: '#more-interval', moreAccel: '#more-accel',
+    endHits: '#end-hits', endTime: '#end-time', delay: '#delay',
+    timeout: '#timeout', nogoRatio: '#nogo-ratio', nogoTime: '#nogo-time', runs: '#runs', moreInterval: '#more-interval', moreAccel: '#more-accel',
   };
   for (const [k, id] of Object.entries(fields)) if (c[k] != null) $(id).value = c[k];
 }
@@ -855,16 +947,22 @@ async function startTraining() {
     return alert('Bitte mindestens eine Farbe auswählen.');
   }
   if (cfg.mode === 'more' && n < 2) return alert('Für „Immer mehr“ braucht es mindestens 2 Lampen.');
+  if (cfg.mode === 'base') {
+    if (!cfg.baseLamp) return alert('Bitte eine Basislampe auswählen.');
+    if (n < 2) return alert('Für den Basismodus braucht es mindestens 2 Lampen.');
+  }
   if (cfg.mode === 'gonogo' && cfg.nogoColors.length === 0) return alert('Bitte mindestens eine Störfarbe auswählen.');
 
   $('#btn-start').disabled = true;
   $('#btn-stop').disabled = false;
   $('#live-scores').innerHTML = '';
   $('#live-msg').textContent = 'Los gehts!';
-  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
   session = new Session(cfg);
+  $('#live-clock').classList.toggle('hidden', !session.hasClock());
+  session.renderProgress();
   session.renderLive();
   session.start();
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { wakeLock = null; }
 }
 
 function onSessionEnd() {
@@ -896,11 +994,12 @@ function renderResults() {
       <td class="num">${fmt(r.best)}</td>
       <td class="num">${r.misses}</td>
       <td class="num">${r.mode === 'gonogo' ? r.errors : '·'}</td>
+      <td class="num">${fmt(r.backAvg)}</td>
     </tr>`).join('');
   $('#results').innerHTML = `
     <div class="card" style="overflow-x:auto">
       <table>
-        <thead><tr><th>Datum</th><th>Spieler</th><th>Programm</th><th>Dauer (s)</th><th>Treffer</th><th>Schnitt (s)</th><th>Beste (s)</th><th>Verpasst</th><th>Fehler</th></tr></thead>
+        <thead><tr><th>Datum</th><th>Spieler</th><th>Programm</th><th>Dauer (s)</th><th>Treffer</th><th>Schnitt (s)</th><th>Beste (s)</th><th>Verpasst</th><th>Fehler</th><th>Rückweg (s)</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -908,7 +1007,7 @@ function renderResults() {
 
 function exportCsv() {
   const num = (v) => (v == null ? '' : String(Math.round(v * 1000) / 1000).replace('.', ','));
-  const head = ['Datum', 'Spieler', 'Programm', 'Dauer (s)', 'Treffer', 'Schnitt (s)', 'Beste (s)', 'Verpasst', 'Fehler', 'Richtig ignoriert', 'Einzelzeiten (s)'];
+  const head = ['Datum', 'Spieler', 'Programm', 'Dauer (s)', 'Treffer', 'Schnitt (s)', 'Beste (s)', 'Verpasst', 'Fehler', 'Richtig ignoriert', 'Rückweg Schnitt (s)', 'Einzelzeiten (s)'];
   const lines = results.map((r) => [
     new Date(r.date).toLocaleString('de-DE'),
     r.player,
@@ -920,6 +1019,7 @@ function exportCsv() {
     r.misses,
     r.errors,
     r.rejections,
+    num(r.backAvg),
     r.times.map(num).join(' '),
   ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';'));
   const blob = new Blob(['﻿' + [head.join(';'), ...lines].join('\r\n')], { type: 'text/csv;charset=utf-8' });

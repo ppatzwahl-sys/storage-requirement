@@ -55,41 +55,47 @@
             <option value="multi">Duell: jede Farbe ist ein Team</option>
             <option value="sprint">Sprint: Zeitmessung von Start zu Ziel</option>
             <option value="more">Immer mehr: wenn alle an sind, ist Schluss</option>
+            <option value="base">Basis: Basis, Ziel, Basis, Ziel ...</option>
           </select>
         </label>
         <p id="mode-desc" class="hint"></p>
 
-        <div id="opt-player" class="opt" data-show="random gonogo sequence sprint more">
+        <div id="opt-player" class="opt" data-show="random gonogo sequence sprint more base">
           <label>Spieler
             <select id="player"></select>
           </label>
         </div>
 
         <div class="grid2">
-          <label data-show="random gonogo sequence multi">Ende nach
+          <label data-show="random gonogo sequence multi base">Ende nach
             <select id="end-type">
               <option value="hits">Anzahl Reize</option>
               <option value="time">Zeit</option>
             </select>
           </label>
-          <label id="end-hits-wrap" data-show="random gonogo sequence multi">Reize
+          <label id="end-hits-wrap" data-show="random gonogo sequence multi base">Reize
             <input id="end-hits" type="number" min="1" max="500" value="20">
           </label>
-          <label id="end-time-wrap" data-show="random gonogo sequence multi">Sekunden
+          <label id="end-time-wrap" data-show="random gonogo sequence multi base">Sekunden
             <input id="end-time" type="number" min="5" max="600" value="30">
           </label>
           <label id="runs-wrap" data-show="sprint">Durchläufe
             <input id="runs" type="number" min="1" max="50" value="5">
           </label>
-          <label data-show="random gonogo sequence multi sprint">Pause min (s)
-            <input id="delay-min" type="number" min="0" max="10" step="0.1" value="0.5">
+          <label data-show="random gonogo sequence multi sprint base">Pause (s)
+            <input id="delay" type="number" min="0" max="10" step="0.1" value="1">
           </label>
-          <label data-show="random gonogo sequence multi sprint">Pause max (s)
-            <input id="delay-max" type="number" min="0" max="10" step="0.1" value="1.5">
-          </label>
-          <label data-show="random gonogo sequence multi">Zeitlimit pro Reiz (s)
+          <label data-show="random gonogo sequence multi base">Zeitlimit (s), 0 = ohne
             <input id="timeout" type="number" min="0" max="30" step="0.1" value="3">
           </label>
+        </div>
+
+        <div id="opt-base" class="opt" data-show="base">
+          <label>Basislampe
+            <select id="base-lamp"></select>
+          </label>
+          <p class="hint">Die Basis leuchtet weiß. Abschlagen lässt sofort eine der anderen Lampen aufleuchten.
+            Nach Treffer oder Zeitlimit und der Pause leuchtet wieder die Basis.</p>
         </div>
 
         <div id="opt-sprint" class="opt" data-show="sprint">
@@ -122,7 +128,7 @@
           </div>
         </div>
 
-        <div id="opt-colors" class="opt" data-show="random gonogo sequence multi more">
+        <div id="opt-colors" class="opt" data-show="random gonogo sequence multi more base">
           <span class="label" id="colors-label">Farben</span>
           <div id="colors" class="chips"></div>
         </div>
@@ -130,9 +136,14 @@
         <div id="opt-nogo" class="opt" data-show="gonogo">
           <span class="label">Störfarben (nicht berühren)</span>
           <div id="nogo-colors" class="chips"></div>
-          <label>Anteil Störreize (%)
-            <input id="nogo-ratio" type="number" min="0" max="90" value="30">
-          </label>
+          <div class="grid2">
+            <label>Anteil Störreize (%)
+              <input id="nogo-ratio" type="number" min="0" max="90" value="30">
+            </label>
+            <label>Störfarbe leuchtet (s)
+              <input id="nogo-time" type="number" min="0.3" max="30" step="0.1" value="2">
+            </label>
+          </div>
         </div>
 
         <div class="row">
@@ -142,6 +153,7 @@
       </div>
 
       <div id="live" class="card live">
+        <div id="live-clock" class="clock hidden">0:00</div>
         <div class="live-main">
           <div><span class="kpi" id="live-hits">0</span><span class="kpi-label">Treffer</span></div>
           <div><span class="kpi" id="live-last">·</span><span class="kpi-label">Letzte (s)</span></div>
