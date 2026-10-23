@@ -10,7 +10,9 @@ ausgerichtet auf kognitives Training im Handball.
    1. Zufall: eine zufällige Lampe in einer zufälligen Farbe
    2. Go / NoGo: Zielfarben treffen, Störfarben ignorieren (Hemmung und Entscheidung)
    3. Reihenfolge: Lampen der Reihe nach
-   4. Duell: 2 bis 4 Spieler, jeder mit eigener Farbe, wer mehr trifft gewinnt
+   4. Duell: 2 bis 4 Farben, jede Farbe ist ein Team, wer mehr trifft gewinnt
+   5. Sprint: Startlampe abschlagen, zur Ziellampe (fest oder zufällig) laufen, Zeit dazwischen wird gemessen
+   6. Immer mehr: Lampen gehen in festem oder immer kürzerem Abstand an, sind alle gleichzeitig an, ist das Spiel vorbei
 3. **Reaktionszeiten** werden von der Lampe selbst gemessen (10 ms Auflösung)
 4. **Ergebnisse** pro Spieler speichern und als CSV für Excel exportieren
 5. **Simulationsmodus** mit virtuellen Lampen zum Ausprobieren ohne Hardware
