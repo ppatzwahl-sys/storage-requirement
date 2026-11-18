@@ -18,6 +18,7 @@ ausgerichtet auf kognitives Training im Handball.
 4. **Ergebnisse** pro Spieler speichern und als CSV für Excel exportieren
 5. **Simulationsmodus** mit virtuellen Lampen zum Ausprobieren ohne Hardware
 6. **Diagnose** zum Senden roher Befehle
+7. **Feedback** über Instagram und E-Mail (Reiter Einstellungen und Fußzeile)
 
 ## Benutzung
 
