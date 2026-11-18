@@ -1234,6 +1234,10 @@ function init() {
   setInterval(keepAlive, KEEP_ALIVE_MS);
 
   $('#version').textContent = 'v' + APP_VERSION;
+  // Betreff und Version vorausfüllen, damit Rückmeldungen zuzuordnen sind
+  const mail = 'mailto:neurohball.performance@gmail.com?subject=' + encodeURIComponent('Feedback ReactionX Trainer') +
+    '&body=' + encodeURIComponent(`\n\n\nApp Version: ${APP_VERSION}\nGerät: ${navigator.userAgent}`);
+  document.querySelectorAll('#feedback-mail, .feedback-mail').forEach((a) => { a.href = mail; });
   $('#update-banner').onclick = () => location.reload();
   checkForUpdate();
   setInterval(checkForUpdate, UPDATE_CHECK_MS);

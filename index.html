@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0f1115">
   <!-- Bei jeder Veröffentlichung erhöhen, auch in den ?v= Angaben unten -->
-  <meta name="app-version" content="1.4">
+  <meta name="app-version" content="1.5">
   <title>ReactionX Trainer</title>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="style.css?v=1.4">
+  <link rel="stylesheet" href="style.css?v=1.5">
 </head>
 <body>
   <header>
@@ -186,6 +186,16 @@
 
     <!-- Einstellungen -->
     <section id="tab-settings" class="tab">
+      <div id="feedback" class="card">
+        <h2>Feedback und Kritik</h2>
+        <p class="hint">Fehler gefunden, Wunsch für ein neues Spiel oder Kritik an der App? Schreib mir gern.</p>
+        <div class="row">
+          <a class="btn primary" href="https://www.instagram.com/neurohball.performance/" target="_blank" rel="noopener">Instagram</a>
+          <a class="btn" id="feedback-mail" href="mailto:neurohball.performance@gmail.com">E-Mail</a>
+        </div>
+        <p class="hint">Instagram: @neurohball.performance<br>E-Mail: neurohball.performance@gmail.com</p>
+      </div>
+
       <div class="card">
         <h2>Spieler</h2>
         <div class="row">
@@ -241,6 +251,12 @@
     </section>
   </main>
 
-  <script src="app.js?v=1.4"></script>
+  <footer>
+    Feedback und Kritik:
+    <a href="https://www.instagram.com/neurohball.performance/" target="_blank" rel="noopener">Instagram</a> ·
+    <a class="feedback-mail" href="mailto:neurohball.performance@gmail.com">E-Mail</a>
+  </footer>
+
+  <script src="app.js?v=1.5"></script>
 </body>
 </html>
